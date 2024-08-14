@@ -26,8 +26,6 @@ def scale_data(data,scaler=None):
         scaled_data = scaler.transform(data)
     return scaled_data,scaler
 
-
-### 
 class PerObservationMSECallback(Callback):
     def __init__(self,train_dataset,val_dataset, folder_path = r'C:\Users\SESA626862\Documents\RL_codes\histogramas'):
         super().__init__()
@@ -40,47 +38,56 @@ class PerObservationMSECallback(Callback):
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
 
-    def compute_mse(self,dataset,epoch):
+    def compute_mse(self,dataset,epoch,dataset_type = 'train'):
         y_true_all = []
         y_pred_all = []
-        X_=[]
-
+        X_all=[]
         ## Create a new iterator for the dataset
         dataset_iterator = iter(dataset)
 
-        ## Iterate over the dataset to collect all true and predicted values
-        for X_batch,y_batch in dataset_iterator:
+        for (X_batch1,X_batch2),y_batch in dataset_iterator:
+            X_batch1_flat = tf.reshape(X_batch1,[X_batch1.shape[0],-1])
+            X_batch2_flat = tf.reshape(X_batch2,[X_batch2.shape[0],-1])
+            X_combined = tf.concat([X_batch1_flat,X_batch2_flat],axis=1)
+            X_all.append(X_combined)
             y_true_all.append(y_batch)
-            y_pred_batch = self.model.predict_on_batch(X_batch)
+            y_pred_batch = self.model.predict_on_batch([X_batch1,X_batch2])
             y_pred_all.append(y_pred_batch)
 
-        
         y_true_all = tf.concat(y_true_all,axis=0)
         y_pred_all = tf.concat(y_pred_all,axis=0)
-        X_ = tf.concat(X_,axis=0)
+        X_all = tf.concat(X_all,axis=0)
 
         ## Ensure tensors are of type float32
         y_true_all = tf.cast(y_true_all,tf.float32)
         y_pred_all = tf.cast(y_pred_all,tf.float32)
         mse_per_observation = tf.reduce_mean(tf.square(y_true_all-y_pred_all),axis=1)
 
+        X_all_np = X_all.numpy()
+
+        if dataset_type == 'train':
+            np.savetxt(r"C:\Users\SESA626862\Documents\RL_codes\outputs_mse\Train\train_" + str(epoch) + ".csv", X_all_np, delimiter=",")
+        
+        if dataset_type == 'val':
+            np.savetxt(r"C:\Users\SESA626862\Documents\RL_codes\outputs_mse\Val\val_" + str(epoch) + ".csv", X_all_np, delimiter=",")
 
         return mse_per_observation.numpy()
     
     def on_epoch_end(self,epoch,logs=None):
-        mse_train,X = self.compute_mse(self.train_dataset,epoch)
-        mse_val = self.compute_mse(self.val_dataset)
+        mse_train= self.compute_mse(self.train_dataset,epoch,dataset_type = 'train')
+        mse_val = self.compute_mse(self.val_dataset,epoch,dataset_type = 'val')
 
-        np.savetxt(r"C:\Users\SESA626862\Documents\RL_codes\outputs_mse\mse_train_" + str(epoch) + ".csv", mse_train, delimiter=",")
+        np.savetxt(r"C:\Users\SESA626862\Documents\RL_codes\outputs_mse\Train\mse_train_" + str(epoch) + ".csv", mse_train, delimiter=",")
+        np.savetxt(r"C:\Users\SESA626862\Documents\RL_codes\outputs_mse\Val\mse_val_" + str(epoch) + ".csv", mse_val, delimiter=",")
 
         self.mse_per_epoch_train.append(mse_train)
         self.mse_per_epoch_val.append(mse_val)
 
+        """
         ## print summary information
         mean_mse_train = np.mean(mse_train)
         mean_mse_val = np.mean(mse_val)
         print(f'Epoch {epoch + 1}: Mean MSE (Train): {mean_mse_train:.4f}, Mean MSE (val): {mean_mse_val:.4f}')
-        """
         ## Plot histograms for training and validation MSE
         plt.figure(figsize=(12,5))
 
@@ -139,8 +146,8 @@ X1_test, X1_val, X2_test, X2_val, y_test, y_val = train_test_split(X1_test,X2_te
 X1_train_ = np.copy(X1_train)
 X2_train_ = np.copy(X2_train)
 
-pd.DataFrame(X1_train_).to_csv(r"C:\Users\SESA626862\Documents\RL_codes\outputs_mse\X1_train.csv")
-pd.DataFrame(X2_train_).to_csv(r"C:\Users\SESA626862\Documents\RL_codes\outputs_mse\X2_train.csv")
+#pd.DataFrame(X1_train_).to_csv(r"C:\Users\SESA626862\Documents\RL_codes\outputs_mse\X1_train.csv")
+#pd.DataFrame(X2_train_).to_csv(r"C:\Users\SESA626862\Documents\RL_codes\outputs_mse\X2_train.csv")
 
 X1_train,scale_alex = scale_data(X1_train)
 X2_train,scale_jones = scale_data(X2_train)
@@ -207,7 +214,7 @@ model = Model(inputs = [input1,input2], outputs=output)
 model.compile(optimizer=Adam(learning_rate=0.001),loss='mean_squared_error')
 
 ## Early stopping 
-early_stopping = EarlyStopping(monitor='val_loss',patience=3,restore_best_weights=True)
+early_stopping = EarlyStopping(monitor='val_loss',patience=5,restore_best_weights=True)
 
 ## Initialize the custom callback with the training dataset
 per_observation_mse_callback = PerObservationMSECallback(train_dataset, val_dataset)
